@@ -1,0 +1,8 @@
+{
+  "name": "PrintStudio AI",
+  "description": "Studio desain cetak berbasis AI untuk bisnis percetakan dan desainer grafis dengan vektor SVG siap cetak, preset ukuran, revisi chat, dan edit langsung.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
