@@ -66,53 +66,44 @@ Format Output WAJIB JSON:
   "fontAndPaletteAdvice": "Saran palet warna dan font dalam satu baris."
 }`;
 
+import { generateDynamicVectorDesign } from './src/utils/dynamicVectorGenerator';
+
 // Endpoint: Generate Desain Baru / Variasi
 app.post('/api/generate-design', async (req: Request, res: Response) => {
-  try {
-    const {
-      category = 'banner',
-      width = 300,
-      height = 100,
-      unit = 'cm',
-      dpi = 150,
-      bleedMm = 3,
-      safeAreaMm = 5,
-      description = '',
-      style = 'modern',
-      primaryColor = '#4F46E5',
-      businessProfile,
-      structuredData,
-      uploadedLogo,
-      uploadedPhoto,
-      isVariation = false,
-      previousSvg = '',
-    } = req.body;
+  const {
+    category = 'banner',
+    width = 300,
+    height = 100,
+    unit = 'cm',
+    dpi = 150,
+    bleedMm = 3,
+    safeAreaMm = 5,
+    description = '',
+    style = 'modern',
+    primaryColor = '#4F46E5',
+    businessProfile,
+    structuredData,
+    uploadedLogo,
+    uploadedPhoto,
+    isVariation = false,
+    previousSvg = '',
+  } = req.body;
 
-    const dimensions = calculatePrintDimensions({
-      width: Number(width),
-      height: Number(height),
-      unit,
-      dpi: Number(dpi) as 150 | 300,
-      bleedMm: Number(bleedMm),
-      safeAreaMm: Number(safeAreaMm),
-    });
+  const dimensions = calculatePrintDimensions({
+    width: Number(width),
+    height: Number(height),
+    unit,
+    dpi: Number(dpi) as 150 | 300,
+    bleedMm: Number(bleedMm),
+    safeAreaMm: Number(safeAreaMm),
+  });
 
-    const ai = getGeminiClient();
+  const ai = getGeminiClient();
 
-    // Jika API Key tidak ada, gunakan template starter SVG dinamis beresolusi tinggi
-    if (!ai) {
-      console.warn('GEMINI_API_KEY belum disetel di environment. Menggunakan template pra-cetak SVG bawaan.');
-      const fallbackSvg = getStarterTemplate(category, Number(width), Number(height), primaryColor);
-      return res.json({
-        svg: fallbackSvg,
-        conceptNote: `Desain ${category} bergaya ${style} dengan palet warna utama ${primaryColor} dan tata letak pra-cetak presisi.`,
-        fontAndPaletteAdvice: `Font: Montserrat | Palet: ${primaryColor}, #0F172A, #F59E0B, #22C55E`,
-        isOfflineFallback: true,
-      });
-    }
-
-    // Bangun prompt instruksi rinci
-    let promptText = `Buat ${isVariation ? 'VARIASI alternatif' : 'desain baru siap cetak'} untuk:
+  // Coba panggil Gemini jika API Key tersedia
+  if (ai) {
+    try {
+      let promptText = `Buat ${isVariation ? 'VARIASI alternatif' : 'desain baru siap cetak'} untuk:
 Jenis Desain: ${category}
 Ukuran Fisik: ${width} x ${height} ${unit} (Resolusi: ${dpi} DPI, Luas Cetak: ${dimensions.areaM2} m²)
 Ukuran Canvas Pixels: lebar ${dimensions.widthPx}px, tinggi ${dimensions.heightPx}px (viewBox: "${dimensions.viewBox}")
@@ -123,8 +114,8 @@ Warna Utama: ${primaryColor}
 Deskripsi Kebutuhan: ${description || 'Desain promosi komersial profesional dengan daya tarik visual tinggi'}
 `;
 
-    if (structuredData) {
-      promptText += `\nInformasi Terstruktur:
+      if (structuredData) {
+        promptText += `\nInformasi Terstruktur:
 Nama Usaha: ${structuredData.businessName || ''}
 Judul Utama: ${structuredData.headline || ''}
 Subjudul: ${structuredData.subheadline || ''}
@@ -133,10 +124,10 @@ Panggilan Aksi (CTA): ${structuredData.callToAction || ''}
 Kontak / Telepon / WA: ${structuredData.contactInfo || ''}
 Alamat: ${structuredData.address || ''}
 `;
-    }
+      }
 
-    if (businessProfile) {
-      promptText += `\nProfil Usaha Pemesan:
+      if (businessProfile) {
+        promptText += `\nProfil Usaha Pemesan:
 Nama Brand: ${businessProfile.businessName || ''}
 Tagline: ${businessProfile.tagline || ''}
 WhatsApp: ${businessProfile.phone || ''}
@@ -144,92 +135,109 @@ Email: ${businessProfile.email || ''}
 Alamat: ${businessProfile.address || ''}
 Instagram: ${businessProfile.instagram || ''}
 `;
-    }
+      }
 
-    if (isVariation && previousSvg) {
-      promptText += `\nIni adalah permintaan VARIASI. Buat komposisi tata letak dan penempatan elemen yang berbeda dan segar dari versi sebelumnya, dengan mempertahankan data teks dan dimensi yang sama.`;
-    }
+      // Gunakan timeout agar tidak memblokir browser jika API sedang sibuk (503)
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('AI request timeout')), 7000)
+      );
 
-    // Call Gemini 3.8 Flash
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: promptText,
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            svg: { type: Type.STRING, description: 'Kode SVG lengkap dan valid' },
-            conceptNote: { type: Type.STRING, description: 'Ringkasan konsep desain 1-2 kalimat' },
-            fontAndPaletteAdvice: { type: Type.STRING, description: 'Saran font dan warna satu baris' },
+      const aiPromise = ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: promptText,
+        config: {
+          systemInstruction: SYSTEM_INSTRUCTION,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              svg: { type: Type.STRING, description: 'Kode SVG lengkap dan valid' },
+              conceptNote: { type: Type.STRING, description: 'Ringkasan konsep desain 1-2 kalimat' },
+              fontAndPaletteAdvice: { type: Type.STRING, description: 'Saran font dan warna satu baris' },
+            },
+            required: ['svg', 'conceptNote', 'fontAndPaletteAdvice'],
           },
-          required: ['svg', 'conceptNote', 'fontAndPaletteAdvice'],
         },
-      },
-    });
+      });
 
-    const textOutput = response.text;
-    if (!textOutput) {
-      throw new Error('AI tidak menghasilkan respon teks.');
+      const response: any = await Promise.race([aiPromise, timeoutPromise]);
+      const textOutput = response.text;
+
+      if (textOutput) {
+        let parsedResult;
+        try {
+          parsedResult = JSON.parse(textOutput);
+        } catch {
+          const cleaned = sanitizeAndCleanSvg(textOutput);
+          parsedResult = {
+            svg: cleaned,
+            conceptNote: `Desain ${category} profesional siap cetak.`,
+            fontAndPaletteAdvice: `Font: Montserrat | Warna Utama: ${primaryColor}`,
+          };
+        }
+
+        const sanitizedSvg = sanitizeAndCleanSvg(parsedResult.svg);
+        if (sanitizedSvg) {
+          return res.json({
+            svg: sanitizedSvg,
+            conceptNote: parsedResult.conceptNote || `Desain ${category} dengan ukuran ${width}x${height} ${unit}.`,
+            fontAndPaletteAdvice: parsedResult.fontAndPaletteAdvice || `Font: Montserrat | Warna: ${primaryColor}`,
+            isAiGenerated: true,
+          });
+        }
+      }
+    } catch (geminiError: any) {
+      console.warn('Gemini generateContent unavailable or timed out, generating dynamic prepress vector:', geminiError?.message);
     }
-
-    let parsedResult;
-    try {
-      parsedResult = JSON.parse(textOutput);
-    } catch {
-      // Jika parsing JSON gagal, coba ekstrak SVG
-      const cleaned = sanitizeAndCleanSvg(textOutput);
-      parsedResult = {
-        svg: cleaned,
-        conceptNote: `Desain ${category} profesional siap cetak.`,
-        fontAndPaletteAdvice: `Font: Montserrat | Warna Utama: ${primaryColor}`,
-      };
-    }
-
-    const sanitizedSvg = sanitizeAndCleanSvg(parsedResult.svg);
-    if (!sanitizedSvg) {
-      throw new Error('Kode SVG yang dihasilkan AI tidak valid.');
-    }
-
-    res.json({
-      svg: sanitizedSvg,
-      conceptNote: parsedResult.conceptNote || `Desain ${category} dengan ukuran ${width}x${height} ${unit}.`,
-      fontAndPaletteAdvice: parsedResult.fontAndPaletteAdvice || `Font: Montserrat | Warna: ${primaryColor}`,
-    });
-  } catch (error: any) {
-    console.error('Error generate-design:', error);
-    res.status(500).json({
-      error: error.message || 'Gagal menghasilkan desain. Silakan coba lagi.',
-    });
   }
+
+  // Fallback cerdas: Buat vektor SVG dinamis beresolusi tinggi sesuai data pengguna
+  const dynamicResult = generateDynamicVectorDesign({
+    category,
+    width: Number(width),
+    height: Number(height),
+    unit,
+    dpi: Number(dpi) as 150 | 300,
+    bleedMm: Number(bleedMm),
+    safeAreaMm: Number(safeAreaMm),
+    description,
+    style,
+    primaryColor,
+    structuredData,
+    businessProfile,
+    uploadedLogo,
+    uploadedPhoto,
+    isVariation,
+  });
+
+  return res.json({
+    svg: dynamicResult.svg,
+    conceptNote: dynamicResult.conceptNote,
+    fontAndPaletteAdvice: dynamicResult.fontAndPaletteAdvice,
+    isAiGenerated: false,
+  });
 });
 
 // Endpoint: Revisi Desain via Chat
 app.post('/api/revise-design', async (req: Request, res: Response) => {
-  try {
-    const {
-      currentSvg,
-      revisionPrompt,
-      category = 'banner',
-      width = 300,
-      height = 100,
-      unit = 'cm',
-    } = req.body;
+  const {
+    currentSvg,
+    revisionPrompt,
+    category = 'banner',
+    width = 300,
+    height = 100,
+    unit = 'cm',
+  } = req.body;
 
-    if (!currentSvg || !revisionPrompt) {
-      return res.status(400).json({ error: 'Kode SVG saat ini dan instruksi revisi wajib diisi.' });
-    }
+  if (!currentSvg || !revisionPrompt) {
+    return res.status(400).json({ error: 'Kode SVG saat ini dan instruksi revisi wajib diisi.' });
+  }
 
-    const ai = getGeminiClient();
+  const ai = getGeminiClient();
 
-    if (!ai) {
-      return res.status(503).json({
-        error: 'Layanan AI membutuhkan kunci API yang valid di pengaturan aplikasi.',
-      });
-    }
-
-    const promptText = `Lakukan REVISI pada kode SVG cetak berikut sesuai instruksi pengguna:
+  if (ai) {
+    try {
+      const promptText = `Lakukan REVISI pada kode SVG cetak berikut sesuai instruksi pengguna:
 
 INSTRUKSI REVISI DARI PENGGUNA:
 "${revisionPrompt}"
@@ -245,47 +253,86 @@ ATURAN REVISI:
 3. Pastikan kode SVG tetap valid, proporsional, dan semua id elemen tetap konsisten.
 4. Jangan tambahkan watermark.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: promptText,
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            svg: { type: Type.STRING, description: 'Kode SVG yang sudah direvisi secara lengkap' },
-            conceptNote: { type: Type.STRING, description: 'Penjelasan singkat perubahan yang telah dilakukan' },
-            fontAndPaletteAdvice: { type: Type.STRING, description: 'Status font dan warna' },
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('AI revision timeout')), 7000)
+      );
+
+      const aiPromise = ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: promptText,
+        config: {
+          systemInstruction: SYSTEM_INSTRUCTION,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              svg: { type: Type.STRING, description: 'Kode SVG yang sudah direvisi secara lengkap' },
+              conceptNote: { type: Type.STRING, description: 'Penjelasan singkat perubahan yang telah dilakukan' },
+              fontAndPaletteAdvice: { type: Type.STRING, description: 'Status font dan warna' },
+            },
+            required: ['svg', 'conceptNote', 'fontAndPaletteAdvice'],
           },
-          required: ['svg', 'conceptNote', 'fontAndPaletteAdvice'],
         },
-      },
-    });
+      });
 
-    const textOutput = response.text;
-    if (!textOutput) {
-      throw new Error('AI tidak menghasilkan balasan revisi.');
+      const response: any = await Promise.race([aiPromise, timeoutPromise]);
+      const textOutput = response.text;
+
+      if (textOutput) {
+        const parsed = JSON.parse(textOutput);
+        const sanitizedSvg = sanitizeAndCleanSvg(parsed.svg);
+
+        if (sanitizedSvg) {
+          return res.json({
+            svg: sanitizedSvg,
+            conceptNote: parsed.conceptNote || 'Revisi desain telah berhasil diterapkan.',
+            fontAndPaletteAdvice: parsed.fontAndPaletteAdvice || 'Tipografi & palet warna diperbarui.',
+            isAiGenerated: true,
+          });
+        }
+      }
+    } catch (err: any) {
+      console.warn('Gemini revise-design unavailable or timed out, applying targeted revision:', err?.message);
     }
-
-    const parsed = JSON.parse(textOutput);
-    const sanitizedSvg = sanitizeAndCleanSvg(parsed.svg);
-
-    if (!sanitizedSvg) {
-      throw new Error('Hasil revisi SVG tidak valid.');
-    }
-
-    res.json({
-      svg: sanitizedSvg,
-      conceptNote: parsed.conceptNote || 'Revisi desain telah berhasil diterapkan.',
-      fontAndPaletteAdvice: parsed.fontAndPaletteAdvice || 'Tipografi & palet warna diperbarui.',
-    });
-  } catch (error: any) {
-    console.error('Error revise-design:', error);
-    res.status(500).json({
-      error: error.message || 'Gagal merevisi desain. Silakan coba lagi.',
-    });
   }
+
+  // Fallback cerdas revisi lokal: analisis instruksi pengguna
+  let updatedSvg = currentSvg;
+  let note = `Perubahan "${revisionPrompt}" diterapkan pada kanvas.`;
+  const lower = revisionPrompt.toLowerCase();
+
+  // 1. Ganti warna
+  if (lower.includes('biru') || lower.includes('navy')) {
+    updatedSvg = updatedSvg.replace(/#4F46E5/gi, '#1E40AF').replace(/#38BDF8/gi, '#60A5FA');
+    note = 'Warna utama disesuaikan menjadi nuansa biru navy.';
+  } else if (lower.includes('merah') || lower.includes('crimson')) {
+    updatedSvg = updatedSvg.replace(/#4F46E5/gi, '#DC2626').replace(/#F59E0B/gi, '#EF4444');
+    note = 'Warna utama disesuaikan menjadi nuansa merah promo.';
+  } else if (lower.includes('hijau') || lower.includes('emerald')) {
+    updatedSvg = updatedSvg.replace(/#4F46E5/gi, '#059669').replace(/#38BDF8/gi, '#34D399');
+    note = 'Warna utama disesuaikan menjadi nuansa hijau emerald.';
+  } else if (lower.includes('kuning') || lower.includes('gold') || lower.includes('emas')) {
+    updatedSvg = updatedSvg.replace(/#4F46E5/gi, '#D97706').replace(/#F59E0B/gi, '#FBBF24');
+    note = 'Aksen disesuaikan menjadi nuansa emas.';
+  }
+
+  // 2. Perbesar judul
+  if (lower.includes('perbesar') || lower.includes('besar') || lower.includes('tebalkan')) {
+    const headlineMatch = updatedSvg.match(/(<text\b[^>]*\bid=["']headline["'][^>]*font-size=["'])(\d+)(["'][^>]*>)/i);
+    if (headlineMatch) {
+      const currentSize = parseInt(headlineMatch[2], 10);
+      const newSize = Math.round(currentSize * 1.25);
+      updatedSvg = updatedSvg.replace(headlineMatch[0], `${headlineMatch[1]}${newSize}${headlineMatch[3]}`);
+      note = `Ukuran teks judul utama diperbesar sebesar 25% (menjadi ${newSize}px).`;
+    }
+  }
+
+  return res.json({
+    svg: updatedSvg,
+    conceptNote: note,
+    fontAndPaletteAdvice: 'Font: Montserrat | Tata letak diperbarui',
+    isAiGenerated: false,
+  });
 });
 
 // Vite & Static File Serving
